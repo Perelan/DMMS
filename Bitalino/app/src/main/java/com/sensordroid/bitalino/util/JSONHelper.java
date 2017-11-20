@@ -1,25 +1,25 @@
 package com.sensordroid.bitalino.util;
 
-import android.util.Log;
-
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.TimeZone;
+
 /**
  * Created by sveinpg on 20.02.16.
+ * Edited by torsteiw on 29.06.17.
  */
 public class JSONHelper {
 
     public static JSONObject construct(int id, int[] ids, Object[] values) {
-        int timezone = 1;
-        long millis = System.currentTimeMillis();
-        long second = (millis / 1000) % 60;
-        long minute = (millis / (1000 * 60)) % 60;
-        long hour = ((millis / (1000 * 60 * 60)) + timezone) % 24; // Compensate for time zone.
-        millis = millis % 1000;
-
-        String time = String.format("%02d:%02d:%02d:%03d", hour, minute, second, millis);
+        TimeZone timeZone = TimeZone.getTimeZone("UTC");
+        DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
+        dateFormat.setTimeZone(timeZone);
+        String time = dateFormat.format(new Date());
 
         JSONObject res = new JSONObject();
         try {

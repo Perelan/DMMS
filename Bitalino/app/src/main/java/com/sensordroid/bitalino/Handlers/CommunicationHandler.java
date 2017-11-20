@@ -12,8 +12,9 @@ import android.widget.Toast;
 import com.bitalino.comm.BITalinoDevice;
 import com.bitalino.comm.BITalinoException;
 import com.bitalino.comm.BITalinoFrame;
+import com.sensordroid.MainServiceConnection;
 import com.sensordroid.bitalino.SettingsActivity;
-import com.sensordroid.IMainServiceConnection;
+import com.sensordroid.bitalino.WrapperService;
 
 import java.io.IOException;
 import java.util.StringTokenizer;
@@ -26,14 +27,14 @@ public class CommunicationHandler implements Runnable {
 
     //private static final ExecutorService executor = Executors.newFixedThreadPool(4);
     private static final ExecutorService executor = Executors.newSingleThreadExecutor();
-    private final IMainServiceConnection binder;
+    private final MainServiceConnection binder;
     private Context context;
 
     // Get these values from shared preferences
     private static int[] typeList;
     private static int[] channelList;
     private static final int FRAMES_TO_READ = 1;
-    private static int SAMPLING_FREQ = 1;
+    private static int SAMPLING_FREQ;
     private static int driverId;
     private static String driverName;
     private static boolean interrupted;
@@ -41,47 +42,35 @@ public class CommunicationHandler implements Runnable {
     private BluetoothSocket mSocket;
     private BITalinoDevice bitalino;
 
-    public CommunicationHandler(final IMainServiceConnection binder, String name, int id, Context context) {
+    public CommunicationHandler(final MainServiceConnection binder, String name, int id, Context context) {
         this.driverId = id;
         this.driverName = name;
         this.binder = binder;
         this.context = context;
-
         this.bitalino = null;
         this.mSocket = null;
         this.interrupted = false;
-
-        // Get the sampling frequency from the shared preferences.
-        int tmpFreq = context.getSharedPreferences(SettingsActivity.sharedKey,
-                Context.MODE_PRIVATE).getInt(SettingsActivity.frequencyKey, 0);
-        if (tmpFreq < 17) {
-            SAMPLING_FREQ = 1;
-        } else if (tmpFreq < 50) {
-            SAMPLING_FREQ = 10;
-        } else if (tmpFreq< 83) {
-            SAMPLING_FREQ = 100;
-        } else {
-            SAMPLING_FREQ = 1000;
-        }
+        SAMPLING_FREQ = WrapperService.current_frequency;
+        updateMetadata();
     }
 
 
     @Override
     public void run() {
-        sendMetadata();
-
         int sleepTime = 1000;
         while (!interrupted) {
             if (Thread.currentThread().isInterrupted()) {
                 interrupted = true;
                 break;
             }
+
             if (connect()) {
                 Log.d("Run()", "connection successfull");
                 sleepTime = 1000;
                 // Start acquisition of predefined channels
                 collectData();
             }
+            Log.d("Run()", "Not connected!");
             resetConnection();
             if (!interrupted) {
                 try {
@@ -97,7 +86,7 @@ public class CommunicationHandler implements Runnable {
         }
     }
 
-    public void sendMetadata() {
+    public void updateMetadata() {
         // Get types of channels from shared preferences
         String savedString = context.getSharedPreferences(SettingsActivity.sharedKey,
                 Context.MODE_PRIVATE).getString(SettingsActivity.channelKey, "0,0,0,0,0,0");
@@ -112,7 +101,7 @@ public class CommunicationHandler implements Runnable {
                 active_channels++;
             }
         }
-
+/*
         // Create a list of the active channels
         channelList = new int[active_channels];
         int index = 0;
@@ -121,13 +110,15 @@ public class CommunicationHandler implements Runnable {
                 channelList[index++] = i;
             }
         }
-        executor.submit(new MetadataHandler(binder, driverName, driverId, context, typeList));
+        //executor.submit(new MetadataHandler(binder, driverName, driverId, context, typeList));
+*/
     }
 
     /*
         Collects data from the bitalino until the thread is interrupted.
      */
     private void collectData(){
+
         try {
             bitalino.start();
 
@@ -136,12 +127,20 @@ public class CommunicationHandler implements Runnable {
                     interrupted = true;
                     return;
                 }
+                if(WrapperService.current_frequency != SAMPLING_FREQ){
+
+                    SAMPLING_FREQ = WrapperService.current_frequency;
+                    resetConnection();
+                    this.run();
+                }
+
+
                 final BITalinoFrame[] frames;
                 frames = bitalino.read(FRAMES_TO_READ);
 
                 for (final BITalinoFrame frame : frames) {
                     // Pass the BITalinoFrame to a worker thread
-                    executor.submit(new DataHandler(binder, frame, driverId, typeList, channelList));
+                    executor.submit(new DataHandler(binder, frame, driverId, typeList, WrapperService.getChannelList()));
                 }
             }
         } catch (BITalinoException be) {
@@ -151,6 +150,21 @@ public class CommunicationHandler implements Runnable {
             be.printStackTrace();
             return;
         }
+    }
+
+    private boolean createNewBitalinoDevice(){
+        try {
+            Log.d("ALLAH AKBAR: ", "sampling_freq: "+SAMPLING_FREQ+", channelList: "+WrapperService.getChannelList().length);
+            bitalino = new BITalinoDevice(SAMPLING_FREQ, WrapperService.getChannelList());
+            bitalino.open(mSocket.getInputStream(), mSocket.getOutputStream());
+        } catch (BITalinoException be) {
+            be.printStackTrace();
+            return false;
+        } catch (IOException ioe) {
+            ioe.printStackTrace();
+            return false;
+        }
+        return true;
     }
 
     /*
@@ -163,7 +177,6 @@ public class CommunicationHandler implements Runnable {
 
         final BluetoothAdapter blueAdapt = BluetoothAdapter.getDefaultAdapter();
         final BluetoothDevice dev = blueAdapt.getRemoteDevice(remoteDevice);
-
 
         if (!blueAdapt.isEnabled()){
             blueAdapt.enable();
@@ -178,29 +191,32 @@ public class CommunicationHandler implements Runnable {
             return false;
         }
         ParcelUuid[] uuidParcel = dev.getUuids();
-
+        Log.d(TAG, "uuidParcel is: "+uuidParcel);
         boolean connected = false;
-        for (ParcelUuid uuid : uuidParcel) {
-            BluetoothSocket tmp;
-            try {
-                tmp = dev.createInsecureRfcommSocketToServiceRecord(uuid.getUuid());
-            } catch (IOException ioe){
-                ioe.printStackTrace();
-                continue;
-            }
-            mSocket = tmp;
 
-            blueAdapt.cancelDiscovery();
-            try {
-                mSocket.connect();
-                connected = true;
-                break;
-            } catch (IOException ioe) {
-                ioe.printStackTrace();
-            }
-            if (Thread.currentThread().isInterrupted()){
-                interrupted = true;
-                return false;
+        if(uuidParcel != null){
+            for (ParcelUuid uuid : uuidParcel) {
+                BluetoothSocket tmp;
+                try {
+                    tmp = dev.createInsecureRfcommSocketToServiceRecord(uuid.getUuid());
+                } catch (IOException ioe){
+                    ioe.printStackTrace();
+                    continue;
+                }
+                mSocket = tmp;
+
+                blueAdapt.cancelDiscovery();
+                try {
+                    mSocket.connect();
+                    connected = true;
+                    break;
+                } catch (IOException ioe) {
+                    ioe.printStackTrace();
+                }
+                if (Thread.currentThread().isInterrupted()){
+                    interrupted = true;
+                    return false;
+                }
             }
         }
 
@@ -212,17 +228,8 @@ public class CommunicationHandler implements Runnable {
         Log.d(TAG, "Connecting to BITalino");
 
         // Creating a new bitalino device.
-        try {
-            bitalino = new BITalinoDevice(SAMPLING_FREQ, channelList);
-            bitalino.open(mSocket.getInputStream(), mSocket.getOutputStream());
-        } catch (BITalinoException be) {
-            be.printStackTrace();
-            return false;
-        } catch (IOException ioe) {
-            ioe.printStackTrace();
-            return false;
-        }
-        return true;
+
+        return createNewBitalinoDevice();
     }
 
     /**

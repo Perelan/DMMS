@@ -5,18 +5,18 @@ import android.util.Log;
 
 import com.bitalino.comm.BITalinoFrame;
 import com.bitalino.util.SensorDataConverter;
-import com.sensordroid.IMainServiceConnection;
+import com.sensordroid.MainServiceConnection;
 import com.sensordroid.bitalino.util.BitalinoTransfer;
 import com.sensordroid.bitalino.util.JSONHelper;
 
 public class DataHandler implements Runnable {
-    private final IMainServiceConnection binder;
+    private final MainServiceConnection binder;
     private final BITalinoFrame frame;
     private final int id;
     private final int[] typeList;
     private final int[] channelList;
 
-    public DataHandler(final IMainServiceConnection binder, final BITalinoFrame frame,
+    public DataHandler(final MainServiceConnection binder, final BITalinoFrame frame,
                        final int id, final int[] typeList, final int[] channelList){
         this.id = id;
         this.binder = binder;
@@ -71,9 +71,11 @@ public class DataHandler implements Runnable {
             String sendString = JSONHelper.construct(id, channelList, data).toString();
             binder.putJson(sendString);
         } catch (RemoteException re) {
-            re.printStackTrace();
+            //re.printStackTrace();
+            Log.d("DataHandler: ", "RemoteException");
         } catch (Exception e){
-            e.printStackTrace();
+            //e.printStackTrace();
+            Log.d("DataHandler: ", "Exception");
         }
     }
 }

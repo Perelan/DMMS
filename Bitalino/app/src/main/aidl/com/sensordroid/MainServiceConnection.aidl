@@ -1,5 +1,7 @@
 package com.sensordroid;
 
-interface IMainServiceConnection {
+import java.util.List;
+
+interface MainServiceConnection {
     void putJson(in String json);
 }

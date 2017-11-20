@@ -3,7 +3,6 @@ package com.sensordroid.bitalino;
 import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.Service;
-import android.bluetooth.BluetoothDevice;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -15,35 +14,42 @@ import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
 import android.util.Log;
 
+import com.sensordroid.MainServiceConnection;
 import com.sensordroid.bitalino.Handlers.CommunicationHandler;
-import com.sensordroid.IMainServiceConnection;
+
+import java.util.ArrayList;
 
 /**
  * Created by SveinPetter on 04/11/2015.
  */
 public class WrapperService extends Service {
-    private static final String TAG = "TestService";
+    private static final String TAG = "WrapperService";
     public static final String START_ACTION = "com.sensordroid.START";
     public static final String STOP_ACTION = "com.sensordroid.STOP";
     public static final String name = "BITalino";
 
     public static int driverId;
     public static IntentFilter filter;
+    public static int current_frequency;
+    public static ArrayList<Integer> channelList;
 
-    private MainServiceConnection serviceConnection;
-    private static IMainServiceConnection binder;
+    private ServiceBackConnection serviceConnection;
+    private static MainServiceConnection binder;
 
     @Override
     public void onCreate() {
-        Log.d(TAG, "onCreate called");
-        serviceConnection = new MainServiceConnection();
+        Log.w(TAG, "Service created.");
+        //serviceConnection = new MainServiceConnection();
         binder = null;
         driverId = -1;
+        current_frequency = -1;
+        channelList = new ArrayList<Integer>();
     }
 
     @Nullable
     @Override
     public IBinder onBind(Intent intent) {
+        Log.w(TAG, "Got connection. onBind()");
         return null;
     }
 
@@ -55,15 +61,16 @@ public class WrapperService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId){
         if(intent != null) {
             String action = intent.getStringExtra("ACTION");
-            Log.d("onStartCommand", "action: " + action + " binder: " + (binder == null));
-
             if (action.compareTo(START_ACTION) == 0) {
                 driverId = intent.getIntExtra("DRIVER_ID", -1);
                 start(intent.getStringExtra("SERVICE_ACTION"),
                         intent.getStringExtra("SERVICE_PACKAGE"),
-                        intent.getStringExtra("SERVICE_NAME"));
+                        intent.getStringExtra("SERVICE_NAME"),
+                        intent.getIntExtra("CHANNEL", -1),
+                        intent.getIntExtra("FREQUENCY", -1));
             } else if(action.compareTo(STOP_ACTION) == 0) {
-                stop();
+                stop(intent.getIntExtra("CHANNEL", -1),
+                        intent.getIntExtra("FREQUENCY", -1));
             }
         }
         return super.onStartCommand(intent, flags, startId);
@@ -74,9 +81,14 @@ public class WrapperService extends Service {
             * Set the process to a foreground process
             * Bind to remote service
      */
-    public void start(String action, String pack, String name) {
-        Log.d("bind service", getApplicationContext().toString());
+    public void start(String action, String pack, String name, int channel, int frequency) {
+        Log.w(TAG, "Adding new channel: "+channel+", with freq: "+frequency);
+        current_frequency = frequency;
+        if(!channelList.contains(channel)){
+            channelList.add(channel);
+        }
         if(binder == null) {
+            serviceConnection = new ServiceBackConnection();
             toForeground();
             Intent service = new Intent(action);
             service.setComponent(new ComponentName(pack, name));
@@ -90,17 +102,37 @@ public class WrapperService extends Service {
             * Unbinds from the remote service
             * Change the service from foreground
      */
-    public void stop() {
+    public void stop(int channel, int frequency) {
+        Log.w(TAG, "Stopping channel: "+channel+", new frequency: "+frequency);
         if(binder != null) {
-            try {
-                serviceConnection.interruptThread();
-                getApplicationContext().unbindService(serviceConnection);
-                binder = null;
-                stopForeground(true);
-            } catch (IllegalArgumentException iae){
-                iae.printStackTrace();
+            for(int i=0; i<channelList.size(); i++){
+                if(channelList.get(i).intValue() == channel){
+                    channelList.remove(i);
+                    current_frequency = frequency;
+                }
+            }
+
+            if(channelList.size() == 0){
+                try {
+                    serviceConnection.interruptThread();
+                    getApplicationContext().unbindService(serviceConnection);
+                    binder = null;
+                    current_frequency = -1;
+                    stopForeground(true);
+                } catch (IllegalArgumentException iae){
+                    iae.printStackTrace();
+                }
             }
         }
+    }
+
+    public static int[] getChannelList(){
+        int[] newOne = new int[channelList.size()];
+        int index = 0;
+        for(Integer i : channelList){
+            newOne[index++] = i;
+        }
+        return newOne;
     }
 
     /**
@@ -124,7 +156,7 @@ public class WrapperService extends Service {
         startForeground(android.os.Process.myPid(), note);
     }
 
-    private class MainServiceConnection implements ServiceConnection {
+    private class ServiceBackConnection implements ServiceConnection {
         private Thread connectionThread;
 
         PowerManager powerManager = (PowerManager)getApplicationContext().getSystemService(Context.POWER_SERVICE);
@@ -134,13 +166,14 @@ public class WrapperService extends Service {
             Called when the service is connected,
                 * Starts the working thread and acquires the wakelock
          */
+        @Override
         public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
-            binder = IMainServiceConnection.Stub.asInterface(iBinder);
+            binder = MainServiceConnection.Stub.asInterface(iBinder);
             connectionThread = new Thread(new CommunicationHandler(binder, name, driverId, getApplicationContext()));
             connectionThread.start();
 
             if(!wakeLock.isHeld()){
-                Log.d("WakeLock", "Acquire");
+                Log.w("WakeLock", "Acquire");
                 wakeLock.acquire();
             }
         }
@@ -150,7 +183,7 @@ public class WrapperService extends Service {
          */
         @Override
         public void onServiceDisconnected(ComponentName componentName) {
-            Log.d("onServiceDisconnected", "called");
+            Log.w(TAG, "Service disconnected!");
             interruptThread();
         }
 
@@ -159,13 +192,17 @@ public class WrapperService extends Service {
          */
         public void interruptThread() {
             if(wakeLock.isHeld()){
-                Log.d("WakeLock", "Release");
+                Log.w(TAG, "WakeLock released");
                 wakeLock.release();
             }
             if (connectionThread != null) {
                 connectionThread.interrupt();
                 connectionThread = null;
             }
+        }
+
+        public void restartConnection(){
+
         }
     }
 }

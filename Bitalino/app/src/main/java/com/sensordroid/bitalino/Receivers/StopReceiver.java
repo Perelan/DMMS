@@ -19,17 +19,18 @@ public class StopReceiver extends BroadcastReceiver {
 
         if(b!=null)
         {
-            for (String elem : b.getStringArrayList("WRAPPERS")){
-                if (elem.equals(context.getPackageName())){
-                    Log.d(TAG, " id found");
-                    break;
-                }
+            if(b.getString("WRAPPER_ID").equals(context.getPackageName())){
+                driverId = b.getInt("WRAPPER_NUMBER");
             }
         }
 
         if(driverId != -1) {
+            // Sending stop-intent to Service
             Intent service = new Intent(context, WrapperService.class);
             service.putExtra("ACTION", WrapperService.STOP_ACTION);
+            service.putExtra("DRIVER_ID", driverId);
+            service.putExtra("CHANNEL", b.getInt("WRAPPER_CHANNEL"));
+            service.putExtra("FREQUENCY", b.getInt("WRAPPER_FREQUENCY"));
             context.startService(service);
         }
     }

@@ -13,7 +13,6 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.StringTokenizer;
@@ -27,6 +26,7 @@ public class SettingsActivity extends Activity {
     public static final String channelKey = sharedKey + ".channels";
     public static final String macKey = sharedKey + ".mac";
     public static final String frequencyKey = sharedKey + ".frequency";
+    public static final String frequenciesKey = sharedKey + ".frequencies";
     public static final String[] descriptionKeys = new String[]{sharedKey + ".d1", sharedKey + ".d2",
         sharedKey + ".d3", sharedKey + ".d4", sharedKey + ".d5", sharedKey + ".d6"};
 
@@ -78,6 +78,16 @@ public class SettingsActivity extends Activity {
 
         String sharedMac = preferences.getString(macKey, "98:D3:31:B2:BB:A5");
         int sharedProg = preferences.getInt(frequencyKey, 0);
+
+        // Add maximum supported frequency to shared preferences
+        SharedPreferences.Editor ee = preferences.edit();
+        StringBuilder str = new StringBuilder();
+        for (int i = 0; i < freq.length; i++) {
+            str.append(freq[i]).append(",");
+        }
+        ee.putString("frequencies", str.toString());
+        ee.putString(frequenciesKey, str.toString());
+        ee.commit();
 
         editMac.setText(sharedMac);
         seekBar.setProgress(sharedProg);

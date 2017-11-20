@@ -7,14 +7,14 @@ import android.util.Log;
 
 import com.sensordroid.bitalino.SettingsActivity;
 import com.sensordroid.bitalino.util.BitalinoTransfer;
-import com.sensordroid.IMainServiceConnection;
+import com.sensordroid.MainServiceConnection;
 import com.sensordroid.bitalino.util.JSONHelper;
 
 /**
  * Created by sveinpg on 26.02.16.
  */
 public class MetadataHandler implements Runnable {
-    private static IMainServiceConnection binder;
+    private static MainServiceConnection binder;
     private static String name;
     private static int id;
     private static int[] channel_ids;
@@ -22,7 +22,7 @@ public class MetadataHandler implements Runnable {
     private static String[] metrics;
     private static String[] descriptions;
 
-    public MetadataHandler(IMainServiceConnection binder, String name, int id, Context context, int[] types) {
+    public MetadataHandler(MainServiceConnection binder, String name, int id, Context context, int[] types) {
         this.binder = binder;
         this.id = id;
         this.name = name;
@@ -50,6 +50,8 @@ public class MetadataHandler implements Runnable {
             channel_ids[i] = i;
         }
     }
+
+
 
     @Override
     public void run() {
